@@ -33,7 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging, logger
 from app.core.middleware import AuditLoggingMiddleware, SecurityHeadersMiddleware
-from app.api.v1.endpoints import health
+from app.api.v1.endpoints import health, auth
 
 # ┌─────────────────────────────────────────────────────────┐
 # │ 🚀 Application Lifespan Management                      │
@@ -154,8 +154,14 @@ app.include_router(
     tags=["health"],
 )
 
+# Authentication endpoints
+app.include_router(
+    auth.router,
+    prefix=f"{settings.API_V1_PREFIX}/auth",
+    tags=["auth"],
+)
+
 # TODO: Register additional routers
-# app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
 # app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generate", tags=["generation"])
 # app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["admin"])
 
