@@ -144,6 +144,32 @@ class Settings(BaseSettings):
     KEY_VAULT_CLIENT_SECRET: str = Field(default="", description="Client secret (local dev only)")
 
     # ┌─────────────────────────────────────────────────────────┐
+    # │ 🤖 AI Model Providers                                   │
+    # └─────────────────────────────────────────────────────────┘
+    # Azure OpenAI (DALL-E 3)
+    AZURE_OPENAI_API_KEY: str = Field(default="", description="Azure OpenAI API key")
+    AZURE_OPENAI_ENDPOINT: str = Field(default="", description="Azure OpenAI endpoint URL")
+    AZURE_OPENAI_DEPLOYMENT_NAME: str = Field(
+        default="dall-e-3",
+        description="Azure OpenAI deployment name",
+    )
+    AZURE_OPENAI_API_VERSION: str = Field(
+        default="2024-02-01",
+        description="Azure OpenAI API version",
+    )
+
+    # Replicate (Stable Diffusion XL)
+    REPLICATE_API_KEY: str = Field(default="", description="Replicate API key")
+
+    # Adobe Firefly
+    ADOBE_CLIENT_ID: str = Field(default="", description="Adobe API client ID")
+    ADOBE_CLIENT_SECRET: str = Field(default="", description="Adobe API client secret")
+
+    # Azure AI Image Generation
+    AZURE_AI_IMAGE_ENDPOINT: str = Field(default="", description="Azure AI Image endpoint")
+    AZURE_AI_IMAGE_KEY: str = Field(default="", description="Azure AI Image API key")
+
+    # ┌─────────────────────────────────────────────────────────┐
     # │ 💰 Cost Management                                      │
     # └─────────────────────────────────────────────────────────┘
     DEFAULT_DEPARTMENT_BUDGET_AUD: float = Field(

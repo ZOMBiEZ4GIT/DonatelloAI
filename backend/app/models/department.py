@@ -144,7 +144,9 @@ class Department(Base):
     # ┌─────────────────────────────────────────────────────────┐
     # │ Relationships                                           │
     # └─────────────────────────────────────────────────────────┘
-    # users = relationship("User", back_populates="department")
+    users = relationship("User", back_populates="department")
+    generations = relationship("ImageGeneration", back_populates="department")
+    batch_jobs = relationship("BatchGenerationJob", back_populates="department")
 
     def __repr__(self) -> str:
         """String representation."""

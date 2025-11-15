@@ -28,6 +28,8 @@ from app.services.models.base import (
     ModelProvider,
 )
 from app.services.models.dalle3 import DALLE3Provider
+from app.services.models.firefly import FireflyProvider
+from app.services.models.sdxl import SDXLProvider
 
 
 class ModelRouter:
@@ -54,7 +56,20 @@ class ModelRouter:
                 azure_deployment=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             )
 
-        # TODO: Add other providers (SD XL, Firefly, Azure AI)
+        # Initialize Stable Diffusion XL (Replicate)
+        if settings.REPLICATE_API_KEY:
+            self.providers[ModelProvider.REPLICATE_SDXL] = SDXLProvider(
+                api_key=settings.REPLICATE_API_KEY,
+            )
+
+        # Initialize Adobe Firefly
+        if settings.ADOBE_CLIENT_ID and settings.ADOBE_CLIENT_SECRET:
+            self.providers[ModelProvider.ADOBE_FIREFLY] = FireflyProvider(
+                client_id=settings.ADOBE_CLIENT_ID,
+                client_secret=settings.ADOBE_CLIENT_SECRET,
+            )
+
+        # TODO: Add Azure AI Image provider
 
         logger.info(
             "model_router_initialized",

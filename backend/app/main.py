@@ -33,7 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging, logger
 from app.core.middleware import AuditLoggingMiddleware, SecurityHeadersMiddleware
-from app.api.v1.endpoints import health, auth, users
+from app.api.v1.endpoints import health, auth, users, generation
 
 # ┌─────────────────────────────────────────────────────────┐
 # │ 🚀 Application Lifespan Management                      │
@@ -168,9 +168,15 @@ app.include_router(
     tags=["users"],
 )
 
+# Image generation endpoints
+app.include_router(
+    generation.router,
+    prefix=settings.API_V1_PREFIX,
+    tags=["generation"],
+)
+
 # TODO: Register additional routers
 # app.include_router(departments.router, prefix=f"{settings.API_V1_PREFIX}/departments", tags=["departments"])
-# app.include_router(generation.router, prefix=f"{settings.API_V1_PREFIX}/generate", tags=["generation"])
 
 # ┌─────────────────────────────────────────────────────────┐
 # │ ⚠️ Global Exception Handlers                            │

@@ -210,9 +210,10 @@ class User(Base):
     # ┌─────────────────────────────────────────────────────────┐
     # │ Relationships                                           │
     # └─────────────────────────────────────────────────────────┘
-    # department = relationship("Department", back_populates="users")
-    # sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
-    # generations = relationship("Generation", back_populates="user")
+    department = relationship("Department", back_populates="users")
+    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    generations = relationship("ImageGeneration", back_populates="user", cascade="all, delete-orphan")
+    batch_jobs = relationship("BatchGenerationJob", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         """String representation."""
