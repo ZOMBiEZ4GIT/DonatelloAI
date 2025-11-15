@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -128,12 +128,13 @@ async def login() -> RedirectResponse:
     tags=["auth"],
 )
 async def auth_callback(
+    request: Request,
+    response: Response,
     code: str = Query(..., description="Authorization code from Azure AD"),
     state: Optional[str] = Query(None, description="State parameter for CSRF protection"),
     error: Optional[str] = Query(None, description="Error code if auth failed"),
     error_description: Optional[str] = Query(None, description="Error description"),
     db: AsyncSession = Depends(get_async_db),
-    response: Response = None,
 ) -> LoginResponse:
     """
     Handle Azure AD OAuth callback.
@@ -224,13 +225,14 @@ async def auth_callback(
     else:
         # Update last login
         user.last_login_at = datetime.utcnow()
-        # TODO: Update last_login_ip from request
+        user.last_login_ip = request.client.host if request.client else "unknown"
         await db.commit()
 
         logger.info(
             "existing_user_login",
             user_id=user.id,
             email=email,
+            ip_address=user.last_login_ip,
         )
 
     # Generate our own tokens
@@ -245,14 +247,23 @@ async def auth_callback(
 
     refresh_token = create_refresh_token(str(user.id))
 
+    # Extract device info from user agent
+    user_agent = request.headers.get("user-agent", "unknown")
+    client_ip = request.client.host if request.client else "unknown"
+
+    device_info = {
+        "user_agent": user_agent,
+        "ip_address": client_ip,
+    }
+
     # Create session record
     session = UserSession(
         user_id=user.id,
         refresh_token_hash=hash_token(refresh_token),
-        expires_at=datetime.utcnow() + timedelta(days=7),
-        # TODO: Extract device info and IP from request
-        device_info={},
-        ip_address="0.0.0.0",  # Placeholder
+        expires_at=datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        device_info=device_info,
+        ip_address=client_ip,
+        last_used_ip=client_ip,
     )
     db.add(session)
     await db.commit()
@@ -314,28 +325,147 @@ async def auth_callback(
     tags=["auth"],
 )
 async def refresh_token(
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_async_db),
 ) -> TokenResponse:
     """
-    Refresh access token.
+    Refresh access token using refresh token.
 
-    NOTE: This is a simplified version. Full implementation would:
-    - Extract refresh token from cookie
-    - Validate against database
-    - Rotate refresh token
-    - Update session
+    Args:
+        request: FastAPI request object
+        response: FastAPI response object
+        db: Database session
 
     Returns:
-        TokenResponse with new access token
+        TokenResponse with new access token and rotated refresh token
+
+    Raises:
+        HTTPException: 401 if refresh token invalid or expired
+
+    Security:
+        - Refresh token rotation (one-time use)
+        - Old refresh token immediately revoked
+        - Session validation
+        - IP address change detection (warning only)
 
     ISO 27001 Control: A.9.4.3 - Password management system
     """
-    # TODO: Implement full refresh token logic
-    # For now, return error
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Token refresh not yet fully implemented",
+    # Extract refresh token from cookie
+    refresh_token_value = request.cookies.get("refresh_token")
+
+    if not refresh_token_value:
+        logger.warning("refresh_token_missing")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token not found",
+        )
+
+    # Find session by refresh token hash
+    # Note: We need to iterate through active sessions to find matching hash
+    # In production, consider using Redis for faster lookup
+    result = await db.execute(
+        select(UserSession).where(
+            UserSession.revoked == False,
+            UserSession.expires_at > datetime.utcnow(),
+        )
+    )
+    sessions = result.scalars().all()
+
+    # Find matching session
+    matching_session = None
+    for session in sessions:
+        if verify_token(refresh_token_value, session.refresh_token_hash):
+            matching_session = session
+            break
+
+    if not matching_session:
+        logger.warning("refresh_token_invalid_or_expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    # Check if session is still valid
+    if matching_session.is_expired or matching_session.revoked:
+        logger.warning(
+            "session_expired_or_revoked",
+            session_id=matching_session.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or revoked",
+        )
+
+    # Load user
+    result = await db.execute(
+        select(User).where(User.id == matching_session.user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user or not user.is_active:
+        logger.warning(
+            "user_not_found_or_inactive",
+            user_id=matching_session.user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+
+    # Extract IP address from request
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check for IP change (warning only, not blocking)
+    if matching_session.last_used_ip and matching_session.last_used_ip != client_ip:
+        logger.warning(
+            "ip_address_changed_on_refresh",
+            session_id=matching_session.id,
+            old_ip=matching_session.last_used_ip,
+            new_ip=client_ip,
+        )
+
+    # Generate new access token
+    new_access_token = create_access_token(
+        data={
+            "sub": user.email,
+            "user_id": str(user.id),
+            "role": user.role.value,
+            "department_id": str(user.department_id) if user.department_id else None,
+        }
+    )
+
+    # Generate new refresh token (rotation)
+    new_refresh_token = create_refresh_token(str(user.id))
+
+    # Update session with new refresh token hash
+    matching_session.refresh_token_hash = hash_token(new_refresh_token)
+    matching_session.last_used_at = datetime.utcnow()
+    matching_session.last_used_ip = client_ip
+
+    await db.commit()
+
+    # Set new refresh token cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60,  # 7 days
+    )
+
+    logger.info(
+        "token_refreshed",
+        user_id=user.id,
+        session_id=matching_session.id,
+    )
+
+    return TokenResponse(
+        access_token=new_access_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_token=None,  # Sent via cookie, not response body
     )
 
 
@@ -365,14 +495,16 @@ async def refresh_token(
     tags=["auth"],
 )
 async def logout(
+    request: Request,
     response: Response,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
 ) -> LogoutResponse:
     """
-    Logout current user.
+    Logout current user and revoke all active sessions.
 
     Args:
+        request: FastAPI request object
         response: HTTP response for clearing cookies
         current_user: Current authenticated user
         db: Database session
@@ -380,10 +512,29 @@ async def logout(
     Returns:
         LogoutResponse with success message
 
+    Security:
+        - Revokes all active sessions for user
+        - Immediately invalidates refresh tokens
+        - Clears refresh token cookie
+        - Logs logout event for audit
+
     ISO 27001 Control: A.9.4.2 - Secure log-on procedures
     """
-    # TODO: Revoke current session in database
-    # TODO: Clear refresh token cookie
+    # Revoke all active sessions for this user
+    result = await db.execute(
+        select(UserSession).where(
+            UserSession.user_id == current_user.id,
+            UserSession.revoked == False,
+        )
+    )
+    active_sessions = result.scalars().all()
+
+    sessions_revoked = 0
+    for session in active_sessions:
+        session.revoke(reason="user_logout")
+        sessions_revoked += 1
+
+    await db.commit()
 
     # Clear refresh token cookie
     response.delete_cookie(key="refresh_token")
@@ -392,9 +543,12 @@ async def logout(
         "user_logged_out",
         user_id=current_user.id,
         email=current_user.email,
+        sessions_revoked=sessions_revoked,
     )
 
-    return LogoutResponse(message="Successfully logged out")
+    return LogoutResponse(
+        message=f"Successfully logged out. {sessions_revoked} session(s) revoked."
+    )
 
 
 # ┌─────────────────────────────────────────────────────────┐
