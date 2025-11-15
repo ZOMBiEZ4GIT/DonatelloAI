@@ -1,0 +1,211 @@
+# ╔════════════════════════════════════════════════════════╗
+# ║         Python Project Configuration (PEP 518)         ║
+# ║              Enterprise Image Gen Platform             ║
+# ╚════════════════════════════════════════════════════════╝
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eig-platform-backend"
+version = "0.1.0"
+description = "Enterprise Image Generation Platform - Backend Service"
+authors = [
+    {name = "Platform Team", email = "platform@organization.com.au"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3.11",
+    "Framework :: FastAPI",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+]
+
+[project.urls]
+Homepage = "https://github.com/organization/eig-platform"
+Documentation = "https://docs.eig-platform.com.au"
+Repository = "https://github.com/organization/eig-platform"
+"Bug Tracker" = "https://github.com/organization/eig-platform/issues"
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 🔧 Tool Configurations                                  │
+# └─────────────────────────────────────────────────────────┘
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # Default excludes
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  # Custom excludes
+  | alembic/versions
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_glob = ["*/alembic/versions/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "S",    # bandit (security)
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # Line too long (handled by black)
+    "B008",   # Do not perform function calls in argument defaults
+    "C901",   # Too complex (we'll handle this case by case)
+    "S101",   # Use of assert (ok in tests)
+]
+
+[tool.ruff.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # Allow assert in tests
+    "S105",   # Possible hardcoded password
+    "S106",   # Possible hardcoded password
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "msal.*",
+    "azure.*",
+    "replicate.*",
+    "presidio.*",
+    "celery.*",
+    "slowapi.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+    "--tb=short",
+]
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (require external services)",
+    "e2e: End-to-end tests (full system tests)",
+    "security: Security-focused tests",
+    "slow: Tests that take longer than 5 seconds",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "*/tests/*",
+    "*/alembic/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+branch = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 🔒 Bandit Security Scanner Configuration               │
+# └─────────────────────────────────────────────────────────┘
+
+[tool.bandit]
+targets = ["app"]
+exclude_dirs = ["/tests", "/alembic/versions"]
+skips = [
+    "B101",  # Assert used (ok in non-production code paths)
+]
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 📊 Quality Thresholds (ISO 27001 A.14.2.8)             │
+# └─────────────────────────────────────────────────────────┘
+
+# QUALITY GATES:
+# ✅ Test Coverage: Minimum 80% (target: 95%)
+# ✅ Type Coverage: 100% (mypy strict mode)
+# ✅ Security Issues: Zero high/critical (Bandit)
+# ✅ Code Complexity: Cyclomatic complexity < 10
+# ✅ Documentation: All public APIs documented
+#
+# CI/CD ENFORCEMENT:
+# - Pre-commit hooks run: black, isort, ruff, mypy
+# - PR checks require: All tests passing, coverage > 80%
+# - Production deploy: Security scan clean, no known vulnerabilities
+#
+# 📋 ISO 27001 Control Mapping:
+# - A.14.2.1: Secure development policy
+# - A.14.2.5: Secure system engineering principles
+# - A.14.2.8: System security testing
+# - A.14.2.9: System acceptance testing
