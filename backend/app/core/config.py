@@ -252,6 +252,27 @@ class Settings(BaseSettings):
         description="Action when PII detected",
     )
 
+    ENABLE_CONTENT_FILTERING: bool = Field(
+        default=True,
+        description="Enable content filtering for harmful/malicious content",
+    )
+    CONTENT_FILTER_STRICT_MODE: bool = Field(
+        default=False,
+        description="Enable strict mode for content filtering (more aggressive)",
+    )
+    BLOCK_PROMPT_INJECTION: bool = Field(
+        default=True,
+        description="Block prompt injection attempts",
+    )
+    BLOCK_COMMAND_INJECTION: bool = Field(
+        default=True,
+        description="Block command injection attempts",
+    )
+    ENABLE_SECURITY_AUDIT_LOGGING: bool = Field(
+        default=True,
+        description="Log all security violations for audit trail",
+    )
+
     # ┌─────────────────────────────────────────────────────────┐
     # │ 📋 Compliance & Audit                                   │
     # └─────────────────────────────────────────────────────────┘
