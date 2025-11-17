@@ -12,11 +12,18 @@ Business Context:
 ISO 27001 Control: A.12.1.3 - Capacity management
 """
 
-from typing import Dict, Any
-from fastapi import APIRouter, status
+import asyncio
+from typing import Any, Dict
+
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.logging import logger
+from app.db.session import get_engine
 
 router = APIRouter()
 
@@ -66,23 +73,26 @@ async def health_check() -> HealthResponse:
         - No authentication required
         - Excluded from audit logging
     """
-    # TODO: Add actual health checks
-    # - Database connectivity
-    # - Redis connectivity
-    # - Azure Key Vault accessibility
-    # - Model provider APIs accessibility
-    # - Disk space availability
-    # - Memory usage
+    checks = {}
 
-    checks = {
-        "application": "healthy",
-        # "database": "healthy",  # TODO: Implement
-        # "redis": "healthy",  # TODO: Implement
-        # "key_vault": "healthy",  # TODO: Implement
-    }
+    # Application check (always healthy if code is running)
+    checks["application"] = "healthy"
+
+    # Database check
+    checks["database"] = await _check_database()
+
+    # Redis check
+    checks["redis"] = await _check_redis()
 
     # Determine overall status
     overall_status = "healthy" if all(v == "healthy" for v in checks.values()) else "unhealthy"
+
+    # Return 503 if unhealthy
+    status_code = status.HTTP_200_OK if overall_status == "healthy" else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    if overall_status != "healthy":
+        logger.warning("health_check_failed", checks=checks)
+        raise HTTPException(status_code=status_code, detail=checks)
 
     return HealthResponse(
         status=overall_status,
@@ -145,13 +155,68 @@ async def readiness_probe() -> Dict[str, str]:
         - Returns 200 if ready to serve traffic
         - Returns 503 if not ready (dependencies unavailable)
     """
-    # TODO: Add actual readiness checks
-    # - Database connection pool has available connections
-    # - Redis is accessible
-    # - Azure Key Vault is accessible
-    # - Minimum memory available
+    # Check critical dependencies
+    db_status = await _check_database()
+    redis_status = await _check_redis()
+
+    if db_status != "healthy" or redis_status != "healthy":
+        logger.warning("readiness_check_failed", database=db_status, redis=redis_status)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"status": "not_ready", "database": db_status, "redis": redis_status},
+        )
 
     return {"status": "ready"}
+
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ Internal Health Check Functions                         │
+# └─────────────────────────────────────────────────────────┘
+
+
+async def _check_database() -> str:
+    """
+    Check database connectivity.
+
+    Returns:
+        "healthy" if database is accessible, "unhealthy" otherwise
+    """
+    try:
+        engine = get_engine()
+        async with engine.connect() as conn:
+            # Simple SELECT 1 query with timeout
+            await asyncio.wait_for(
+                conn.execute(text("SELECT 1")),
+                timeout=5.0,
+            )
+        return "healthy"
+    except asyncio.TimeoutError:
+        logger.error("database_health_check_timeout")
+        return "unhealthy"
+    except Exception as e:
+        logger.error("database_health_check_failed", error=str(e))
+        return "unhealthy"
+
+
+async def _check_redis() -> str:
+    """
+    Check Redis connectivity.
+
+    Returns:
+        "healthy" if Redis is accessible, "unhealthy" otherwise
+    """
+    try:
+        redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        # PING command with timeout
+        await asyncio.wait_for(redis.ping(), timeout=5.0)
+        await redis.close()
+        return "healthy"
+    except asyncio.TimeoutError:
+        logger.error("redis_health_check_timeout")
+        return "unhealthy"
+    except Exception as e:
+        logger.error("redis_health_check_failed", error=str(e))
+        return "unhealthy"
 
 
 # ⚠️  HEALTH CHECK NOTES:

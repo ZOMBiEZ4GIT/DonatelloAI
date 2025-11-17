@@ -82,9 +82,9 @@ class Settings(BaseSettings):
     # ┌─────────────────────────────────────────────────────────┐
     # │ 🔐 Azure Active Directory / Entra ID                    │
     # └─────────────────────────────────────────────────────────┘
-    AZURE_TENANT_ID: str = Field(..., description="Azure AD tenant ID (required)")
-    AZURE_CLIENT_ID: str = Field(..., description="Azure AD client ID (required)")
-    AZURE_CLIENT_SECRET: str = Field(..., description="Azure AD client secret (required)")
+    AZURE_TENANT_ID: str = Field(default="", description="Azure AD tenant ID (required in production)")
+    AZURE_CLIENT_ID: str = Field(default="", description="Azure AD client ID (required in production)")
+    AZURE_CLIENT_SECRET: str = Field(default="", description="Azure AD client secret (required in production)")
     AZURE_AUTHORITY: str = Field(..., description="Azure AD authority URL")
     AZURE_REDIRECT_URI: str = Field(..., description="OAuth redirect URI")
 
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     # ┌─────────────────────────────────────────────────────────┐
     # │ 🗄️ Database Configuration                               │
     # └─────────────────────────────────────────────────────────┘
-    DATABASE_URL: str = Field(..., description="Database connection URL (required)")
+    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:devpassword123@localhost:5432/eig_platform", description="Database connection URL")
     DB_POOL_SIZE: int = Field(default=20, description="Database connection pool size")
     DB_MAX_OVERFLOW: int = Field(default=10, description="Max connections above pool size")
     DB_POOL_TIMEOUT: int = Field(default=30, description="Pool connection timeout (seconds)")
