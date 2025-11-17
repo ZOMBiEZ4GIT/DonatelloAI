@@ -5,6 +5,7 @@ import { UsageStats } from '@/types';
 import { QUERY_KEYS, API_ENDPOINTS } from '@/utils/constants';
 import { formatCurrency, formatNumber } from '@/utils';
 import { LoadingSpinner } from '@/components/common';
+import { BudgetWidget } from '@/components/budgets';
 
 export const Dashboard = () => {
   const { data: stats, isLoading } = useQuery({
@@ -72,6 +73,9 @@ export const Dashboard = () => {
           );
         })}
       </div>
+
+      {/* Budget Widget */}
+      <BudgetWidget />
 
       {stats?.most_used_model && (
         <div className="rounded-lg border border-gray-200 bg-white p-6">

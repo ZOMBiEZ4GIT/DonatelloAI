@@ -55,6 +55,14 @@ export const API_ENDPOINTS = {
   // Usage & Stats
   USAGE: '/api/v1/account/usage',
   HEALTH: '/api/v1/health',
+
+  // Budgets
+  BUDGETS: {
+    ME: '/api/v1/budgets/me',
+    USER: (userId: string) => `/api/v1/budgets/users/${userId}`,
+    UPDATE: (budgetId: string) => `/api/v1/budgets/${budgetId}`,
+    TEAM_OVERVIEW: '/api/v1/budgets/team/overview',
+  },
 } as const;
 
 export const GENERATION_LIMITS = {
@@ -77,6 +85,9 @@ export const QUERY_KEYS = {
   AUDIT_LOGS: ['audit-logs'],
   USAGE_STATS: ['usage-stats'],
   HEALTH: ['health'],
+  MY_BUDGET: ['my-budget'],
+  USER_BUDGET: (userId: string) => ['user-budget', userId],
+  TEAM_BUDGET_OVERVIEW: ['team-budget-overview'],
 } as const;
 
 export const TOAST_MESSAGES = {

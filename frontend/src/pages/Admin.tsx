@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard, UserManagement, AuditLogViewer } from '@/components/admin';
+import { BudgetManagement } from '@/pages/admin/BudgetManagement';
 import { usePermissions } from '@/hooks';
 
 export const Admin = () => {
@@ -24,6 +25,7 @@ export const Admin = () => {
       <Routes>
         <Route index element={<Dashboard />} />
         <Route path="users" element={<UserManagement />} />
+        <Route path="budgets" element={<BudgetManagement />} />
         <Route path="audit" element={<AuditLogViewer />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
