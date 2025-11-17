@@ -1,0 +1,1445 @@
+openapi: 3.0.3
+
+info:
+  title: DonatelloAI - Enterprise Image Generation Platform API
+  version: 1.0.0
+  description: |
+    # Enterprise Image Generation Platform API
+
+    **ISO 27001 Compliant** | **Australian Data Sovereignty** | **Multi-Model AI**
+
+    ## Overview
+
+    The DonatelloAI API provides secure, governed access to multiple AI image generation models through a unified interface. Designed for Australian enterprises with comprehensive audit trails, cost management, and compliance features.
+
+    ## Key Features
+
+    - 🔐 **Azure AD Authentication** with MFA enforcement
+    - 🎨 **Multi-Model Support** (DALL-E 3, Stable Diffusion XL, Adobe Firefly, Azure AI)
+    - 💰 **Budget Management** with department-level controls
+    - 📊 **Comprehensive Auditing** with 7-year retention
+    - 🛡️ **PII Detection** and content safety checks
+    - ⚡ **WebSocket Support** for real-time generation updates
+
+    ## Authentication
+
+    All API requests require a valid JWT access token obtained through Azure AD OAuth 2.0 flow.
+
+    ```http
+    Authorization: Bearer <access_token>
+    ```
+
+    ## Rate Limiting
+
+    | User Role | Requests/Minute | Generations/Day |
+    |-----------|----------------|-----------------|
+    | Standard User | 60 | 100 |
+    | Power User | 120 | Unlimited (within budget) |
+    | Department Manager | 180 | Unlimited |
+    | Admin | 300 | Unlimited |
+
+    ## Base URLs
+
+    - **Production**: `https://api.donatelloai.com.au`
+    - **Staging**: `https://api-staging.donatelloai.com.au`
+    - **Development**: `http://localhost:8000`
+
+  contact:
+    name: DonatelloAI API Support
+    email: api-support@donatelloai.com.au
+    url: https://docs.donatelloai.com.au
+  license:
+    name: Proprietary
+    url: https://donatelloai.com.au/license
+
+servers:
+  - url: https://api.donatelloai.com.au
+    description: Production server (Australia East)
+  - url: https://api-staging.donatelloai.com.au
+    description: Staging server
+  - url: http://localhost:8000
+    description: Local development server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Health
+    description: Service health and readiness checks
+  - name: Authentication
+    description: User authentication and session management
+  - name: Generation
+    description: Image generation operations
+  - name: Models
+    description: AI model information and availability
+  - name: Users
+    description: User management (admin only)
+  - name: Departments
+    description: Department and budget management
+  - name: Audit
+    description: Audit log access and compliance reporting
+  - name: Webhooks
+    description: Webhook configuration and management
+
+paths:
+  # ============================================================================
+  # HEALTH ENDPOINTS
+  # ============================================================================
+  /api/v1/health:
+    get:
+      tags: [Health]
+      summary: General health check
+      description: Returns the overall health status of the application
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                timestamp: '2025-11-17T10:30:00Z'
+                version: 1.0.0
+                environment: production
+                checks:
+                  database: healthy
+                  redis: healthy
+                  blob_storage: healthy
+                  cosmos_db: healthy
+
+  /api/v1/health/liveness:
+    get:
+      tags: [Health]
+      summary: Kubernetes liveness probe
+      description: Indicates if the application is running
+      operationId: getLiveness
+      security: []
+      responses:
+        '200':
+          description: Application is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: alive
+
+  /api/v1/health/readiness:
+    get:
+      tags: [Health]
+      summary: Kubernetes readiness probe
+      description: Indicates if the application is ready to serve traffic
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Application is ready
+        '503':
+          description: Application is not ready
+
+  # ============================================================================
+  # AUTHENTICATION ENDPOINTS
+  # ============================================================================
+  /api/v1/auth/login:
+    get:
+      tags: [Authentication]
+      summary: Initiate Azure AD login
+      description: Redirects user to Azure AD login page for authentication
+      operationId: initiateLogin
+      security: []
+      parameters:
+        - name: redirect_uri
+          in: query
+          description: URI to redirect after successful authentication
+          schema:
+            type: string
+            format: uri
+            example: https://app.donatelloai.com.au/callback
+      responses:
+        '302':
+          description: Redirect to Azure AD login page
+
+  /api/v1/auth/callback:
+    post:
+      tags: [Authentication]
+      summary: OAuth callback handler
+      description: Exchanges authorization code for access and refresh tokens
+      operationId: handleAuthCallback
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  description: Authorization code from Azure AD
+                state:
+                  type: string
+                  description: CSRF protection state parameter
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      description: Obtains a new access token using a valid refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: Valid refresh token
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout user
+      description: Revokes the current session and refresh token
+      operationId: logout
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Successfully logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user profile
+      description: Returns the authenticated user's profile information
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================================
+  # GENERATION ENDPOINTS
+  # ============================================================================
+  /api/v1/generate:
+    post:
+      tags: [Generation]
+      summary: Generate image
+      description: |
+        Creates a new image generation request. The request is processed asynchronously.
+
+        **Process**:
+        1. Prompt validation and PII detection
+        2. Budget check
+        3. Model selection
+        4. Image generation
+        5. Post-processing and storage
+
+        **WebSocket Updates**: Subscribe to `wss://api.donatelloai.com.au/ws/generations/{task_id}` for real-time progress.
+      operationId: generateImage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerationRequest'
+      responses:
+        '202':
+          description: Generation request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/BudgetExceeded'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/v1/generations/{generation_id}:
+    get:
+      tags: [Generation]
+      summary: Get generation status
+      description: Retrieves the current status and details of a generation request
+      operationId: getGeneration
+      parameters:
+        - $ref: '#/components/parameters/GenerationId'
+      responses:
+        '200':
+          description: Generation details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Generation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [Generation]
+      summary: Delete generation
+      description: Soft deletes a generation (marks as deleted, actual deletion after retention period)
+      operationId: deleteGeneration
+      parameters:
+        - $ref: '#/components/parameters/GenerationId'
+      responses:
+        '204':
+          description: Generation deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/generations:
+    get:
+      tags: [Generation]
+      summary: List generations
+      description: Returns a paginated list of the user's generation history
+      operationId: listGenerations
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of results per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          description: Filter by generation status
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed, cancelled]
+        - name: model_provider
+          in: query
+          description: Filter by model provider
+          schema:
+            type: string
+            enum: [azure-openai, replicate, adobe, azure-ai]
+        - name: start_date
+          in: query
+          description: Filter by creation date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          description: Filter by creation date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of generations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/generate/batch:
+    post:
+      tags: [Generation]
+      summary: Batch generate images
+      description: |
+        Creates multiple image generation requests in a single API call.
+
+        **Limits**:
+        - Power Users: Max 50 per batch
+        - Admins: Max 100 per batch
+        - Standard Users: Not allowed
+      operationId: batchGenerate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requests]
+              properties:
+                requests:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/GenerationRequest'
+      responses:
+        '202':
+          description: Batch request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id:
+                    type: string
+                    format: uuid
+                  generation_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                  total_count:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================================
+  # MODEL ENDPOINTS
+  # ============================================================================
+  /api/v1/models:
+    get:
+      tags: [Models]
+      summary: List available models
+      description: Returns information about all available AI models
+      operationId: listModels
+      responses:
+        '200':
+          description: List of available models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelInfo'
+
+  /api/v1/models/{model_id}/availability:
+    get:
+      tags: [Models]
+      summary: Check model availability
+      description: Returns the current availability status of a specific model
+      operationId: getModelAvailability
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          description: Model identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model availability status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model_id:
+                    type: string
+                  is_available:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [available, degraded, unavailable]
+                  estimated_wait_time_seconds:
+                    type: integer
+                  last_checked:
+                    type: string
+                    format: date-time
+
+  # ============================================================================
+  # USER MANAGEMENT ENDPOINTS (Admin)
+  # ============================================================================
+  /api/v1/admin/users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Returns a list of users (admin only)
+      operationId: listUsers
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: role
+          in: query
+          description: Filter by user role
+          schema:
+            $ref: '#/components/schemas/UserRole'
+        - name: department_id
+          in: query
+          description: Filter by department
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Users]
+      summary: Create user
+      description: Creates a new user account (admin only)
+      operationId: createUser
+      security:
+        - BearerAuth: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/admin/users/{user_id}:
+    get:
+      tags: [Users]
+      summary: Get user details
+      description: Retrieves detailed information about a specific user
+      operationId: getUser
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Users]
+      summary: Update user
+      description: Updates user information (admin only)
+      operationId: updateUser
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdate'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Users]
+      summary: Deactivate user
+      description: Deactivates a user account (soft delete)
+      operationId: deactivateUser
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: User deactivated successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # DEPARTMENT ENDPOINTS
+  # ============================================================================
+  /api/v1/admin/departments:
+    get:
+      tags: [Departments]
+      summary: List departments
+      description: Returns a list of all departments
+      operationId: listDepartments
+      security:
+        - BearerAuth: [admin]
+      responses:
+        '200':
+          description: List of departments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  departments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Department'
+
+    post:
+      tags: [Departments]
+      summary: Create department
+      description: Creates a new department
+      operationId: createDepartment
+      security:
+        - BearerAuth: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentCreate'
+      responses:
+        '201':
+          description: Department created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+
+  /api/v1/admin/departments/{department_id}/budget:
+    get:
+      tags: [Departments]
+      summary: Get department budget
+      description: Returns current budget status for a department
+      operationId: getDepartmentBudget
+      security:
+        - BearerAuth: [admin, dept_manager]
+      parameters:
+        - name: department_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Budget information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DepartmentBudget'
+
+    patch:
+      tags: [Departments]
+      summary: Update department budget
+      description: Updates the monthly budget allocation
+      operationId: updateDepartmentBudget
+      security:
+        - BearerAuth: [admin, org_admin]
+      parameters:
+        - name: department_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_budget_aud:
+                  type: number
+                  format: decimal
+                  minimum: 0
+                enforcement_mode:
+                  type: string
+                  enum: [hard, soft, warn]
+      responses:
+        '200':
+          description: Budget updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DepartmentBudget'
+
+  # ============================================================================
+  # AUDIT ENDPOINTS
+  # ============================================================================
+  /api/v1/admin/audit-logs:
+    get:
+      tags: [Audit]
+      summary: Query audit logs
+      description: Retrieves audit logs with filtering options
+      operationId: getAuditLogs
+      security:
+        - BearerAuth: [admin, org_admin, dept_manager]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+            enum: [user, generation, department, budget, model]
+      responses:
+        '200':
+          description: Audit logs retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogList'
+
+  /api/v1/admin/audit-logs/export:
+    post:
+      tags: [Audit]
+      summary: Export audit logs
+      description: Exports audit logs to CSV format
+      operationId: exportAuditLogs
+      security:
+        - BearerAuth: [admin, org_admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_date:
+                  type: string
+                  format: date-time
+                end_date:
+                  type: string
+                  format: date-time
+                filters:
+                  type: object
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  # ============================================================================
+  # WEBHOOK ENDPOINTS
+  # ============================================================================
+  /api/v1/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      description: Returns configured webhooks for the current user
+      operationId: listWebhooks
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Webhook'
+
+    post:
+      tags: [Webhooks]
+      summary: Create webhook
+      description: Configures a new webhook endpoint
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreate'
+      responses:
+        '201':
+          description: Webhook created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+
+  /api/v1/webhooks/{webhook_id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      description: Removes a webhook configuration
+      operationId: deleteWebhook
+      parameters:
+        - name: webhook_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Webhook deleted
+
+# ==============================================================================
+# COMPONENTS
+# ==============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from Azure AD
+
+  parameters:
+    GenerationId:
+      name: generation_id
+      in: path
+      required: true
+      description: Unique identifier for the generation
+      schema:
+        type: string
+        format: uuid
+
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: Unique identifier for the user
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      in: query
+      description: Page number (1-indexed)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      name: limit
+      in: query
+      description: Number of results per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    # Health Schemas
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        environment:
+          type: string
+          enum: [development, staging, production]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+
+    # Authentication Schemas
+    AuthTokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+          example: 1800
+        refresh_token:
+          type: string
+          description: Refresh token for obtaining new access tokens
+        scope:
+          type: string
+          example: user.read openid profile email
+
+    # User Schemas
+    User:
+      type: object
+      required: [id, email, role, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        azure_ad_id:
+          type: string
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        department_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        is_active:
+          type: boolean
+        mfa_enabled:
+          type: boolean
+        last_login_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        settings:
+          type: object
+
+    UserRole:
+      type: string
+      enum:
+        - super_admin
+        - org_admin
+        - dept_manager
+        - power_user
+        - standard_user
+
+    UserCreate:
+      type: object
+      required: [email, role, department_id]
+      properties:
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        department_id:
+          type: string
+          format: uuid
+
+    UserUpdate:
+      type: object
+      properties:
+        display_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        department_id:
+          type: string
+          format: uuid
+        is_active:
+          type: boolean
+
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Generation Schemas
+    GenerationRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: Text description of the desired image
+          example: A serene landscape with mountains and a lake at sunset
+        model_provider:
+          type: string
+          enum: [azure-openai, replicate, adobe, azure-ai, auto]
+          default: auto
+          description: Preferred model provider (auto for intelligent selection)
+        resolution:
+          type: string
+          enum: ['1024x1024', '1024x1792', '1792x1024']
+          default: '1024x1024'
+        quality:
+          type: string
+          enum: [standard, hd]
+          default: standard
+        style:
+          type: string
+          enum: [vivid, natural]
+          default: vivid
+        webhook_url:
+          type: string
+          format: uri
+          description: Optional webhook for completion notification
+        metadata:
+          type: object
+          description: Custom metadata to attach to the generation
+
+    GenerationResponse:
+      type: object
+      required: [generation_id, status]
+      properties:
+        generation_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, processing]
+        websocket_url:
+          type: string
+          format: uri
+          description: WebSocket URL for real-time updates
+        estimated_completion_time:
+          type: integer
+          description: Estimated seconds until completion
+
+    Generation:
+      type: object
+      required: [id, user_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        department_id:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+          description: Sanitized prompt (PII removed)
+        model_provider:
+          type: string
+        model_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+        image_url:
+          type: string
+          format: uri
+          description: CDN URL of the generated image
+        thumbnail_url:
+          type: string
+          format: uri
+        cost_aud:
+          type: number
+          format: decimal
+        generation_time_ms:
+          type: integer
+        error_message:
+          type: string
+        is_nsfw:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    GenerationList:
+      type: object
+      properties:
+        generations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Generation'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Model Schemas
+    ModelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        model_name:
+          type: string
+        description:
+          type: string
+        is_active:
+          type: boolean
+        cost_per_image_aud:
+          type: number
+          format: decimal
+        sla_percentage:
+          type: number
+          format: float
+        capabilities:
+          type: object
+          properties:
+            max_resolution:
+              type: string
+            styles:
+              type: array
+              items:
+                type: string
+            commercial_use:
+              type: boolean
+
+    # Department Schemas
+    Department:
+      type: object
+      required: [id, name, code, organization_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        code:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        settings:
+          type: object
+
+    DepartmentCreate:
+      type: object
+      required: [name, code]
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+          pattern: '^[A-Z0-9]{2,10}$'
+
+    DepartmentBudget:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        department_id:
+          type: string
+          format: uuid
+        monthly_budget_aud:
+          type: number
+          format: decimal
+        current_spend_aud:
+          type: number
+          format: decimal
+        utilization_percentage:
+          type: number
+          format: float
+        budget_period_start:
+          type: string
+          format: date
+        budget_period_end:
+          type: string
+          format: date
+        enforcement_mode:
+          type: string
+          enum: [hard, soft, warn]
+
+    # Audit Schemas
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        user_id:
+          type: string
+          format: uuid
+        user_email:
+          type: string
+        event_type:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+          format: uuid
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        status:
+          type: string
+          enum: [success, failure]
+        metadata:
+          type: object
+
+    AuditLogList:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Webhook Schemas
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        event_types:
+          type: array
+          items:
+            type: string
+            enum:
+              - generation.started
+              - generation.completed
+              - generation.failed
+              - budget.warning
+              - budget.exceeded
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookCreate:
+      type: object
+      required: [url, event_types]
+      properties:
+        url:
+          type: string
+          format: uri
+        event_types:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+          description: Secret for HMAC signature verification
+
+    # Common Schemas
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error context
+        request_id:
+          type: string
+          description: Request ID for debugging
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: validation_error
+            message: Invalid prompt length
+            details:
+              field: prompt
+              constraint: maxLength
+              value: 4000
+
+    Unauthorized:
+      description: Unauthorized - invalid or missing authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: unauthorized
+            message: Invalid or expired access token
+
+    Forbidden:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: forbidden
+            message: Insufficient permissions to access this resource
+
+    NotFound:
+      description: Not found - resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: not_found
+            message: Generation not found
+
+    Conflict:
+      description: Conflict - resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: conflict
+            message: User with this email already exists
+
+    BudgetExceeded:
+      description: Payment required - budget exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: budget_exceeded
+            message: Department monthly budget has been exhausted
+            details:
+              current_spend: 5000.00
+              budget_limit: 5000.00
+              currency: AUD
+
+    RateLimitExceeded:
+      description: Too many requests - rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: rate_limit_exceeded
+            message: Rate limit of 60 requests per minute exceeded
+            details:
+              retry_after: 30
