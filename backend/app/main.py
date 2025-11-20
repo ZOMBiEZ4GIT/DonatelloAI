@@ -65,7 +65,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         iso27001_mode=settings.ISO27001_MODE,
     )
 
-    # TODO: Initialize database connection pool
+    # Initialize database connection pool
+    try:
+        from app.db.session import init_db
+
+        await init_db()
+        logger.info("database_initialized")
+    except Exception as e:
+        logger.error("database_initialization_failed", error=str(e), exc_info=True)
+        # Continue startup even if database fails (will show in health checks)
+
     # TODO: Verify Azure Key Vault connectivity
     # TODO: Test model provider API connectivity
     # TODO: Initialize Application Insights
@@ -77,7 +86,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 🔴 SHUTDOWN
     logger.info("application_shutdown")
 
-    # TODO: Close database connections
+    # Close database connections
+    try:
+        from app.db.session import close_db
+
+        await close_db()
+        logger.info("database_connections_closed")
+    except Exception as e:
+        logger.error("database_close_failed", error=str(e), exc_info=True)
+
     # TODO: Flush audit logs to Cosmos DB
     # TODO: Complete pending background tasks
     # TODO: Send shutdown metrics to Application Insights
@@ -127,6 +144,12 @@ app = FastAPI(
 # Security headers middleware (OWASP security headers)
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Rate limiting middleware (if enabled)
+if settings.RATE_LIMIT_ENABLED:
+    from app.core.middleware import RateLimitMiddleware
+
+    app.add_middleware(RateLimitMiddleware, redis_url=settings.REDIS_URL)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -134,7 +157,7 @@ app.add_middleware(
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID", "X-RateLimit-Remaining"],
+    expose_headers=["X-Request-ID", "X-RateLimit-Remaining", "X-RateLimit-Limit"],
 )
 
 # GZip compression for responses >1000 bytes
@@ -169,6 +192,67 @@ app.include_router(
 # ┌─────────────────────────────────────────────────────────┐
 # │ ⚠️ Global Exception Handlers                            │
 # └─────────────────────────────────────────────────────────┘
+
+
+from app.core.exceptions import (
+    EIGPlatformException,
+    PIIDetectedError,
+    ContentViolationError,
+    BudgetExceededError,
+    RateLimitExceededError,
+)
+from pydantic import ValidationError
+
+
+@app.exception_handler(EIGPlatformException)
+async def platform_exception_handler(request, exc: EIGPlatformException) -> JSONResponse:
+    """
+    Handler for all custom platform exceptions.
+
+    Returns consistent error format with proper HTTP status codes.
+    """
+    logger.warning(
+        "platform_exception",
+        error_code=exc.error_code,
+        error_message=exc.message,
+        status_code=exc.status_code,
+        path=request.url.path,
+        details=exc.details,
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.error_code,
+            "message": exc.message,
+            "request_id": request.state.request_id if hasattr(request.state, "request_id") else None,
+            **({"details": exc.details} if settings.DEBUG and exc.details else {}),
+        },
+    )
+
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request, exc: ValidationError) -> JSONResponse:
+    """
+    Handler for Pydantic validation errors.
+
+    Returns user-friendly validation error messages.
+    """
+    logger.warning(
+        "validation_error",
+        path=request.url.path,
+        errors=exc.errors(),
+    )
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "validation_error",
+            "message": "Request validation failed",
+            "details": exc.errors() if settings.DEBUG else None,
+            "request_id": request.state.request_id if hasattr(request.state, "request_id") else None,
+        },
+    )
 
 
 @app.exception_handler(Exception)

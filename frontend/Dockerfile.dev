@@ -1,0 +1,37 @@
+# ╔════════════════════════════════════════════════════════╗
+# ║         Development Dockerfile - Frontend              ║
+# ║              Hot Reload with Vite                      ║
+# ╚════════════════════════════════════════════════════════╝
+
+FROM node:18-alpine
+
+LABEL maintainer="donatelloai@example.com"
+LABEL description="Enterprise Image Generation Platform - Frontend (Development)"
+
+WORKDIR /app
+
+# Install dependencies for node-gyp (if needed)
+RUN apk add --no-cache python3 make g++
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm install
+
+# Create non-root user
+RUN addgroup -g 1001 -S appuser && \
+    adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G appuser -g appuser appuser && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose Vite dev server port
+EXPOSE 5173
+
+# Set environment variables
+ENV NODE_ENV=development
+
+# Start development server with hot reload
+CMD ["npm", "run", "dev"]

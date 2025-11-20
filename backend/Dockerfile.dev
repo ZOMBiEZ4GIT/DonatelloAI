@@ -1,0 +1,52 @@
+# ╔════════════════════════════════════════════════════════╗
+# ║         Development Dockerfile - Backend               ║
+# ║              Hot Reload Enabled                        ║
+# ╚════════════════════════════════════════════════════════╝
+
+FROM python:3.11-slim
+
+LABEL maintainer="donatelloai@example.com"
+LABEL description="Enterprise Image Generation Platform - Backend API (Development)"
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    libpq-dev \
+    curl \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt requirements-dev.txt* ./
+
+# Install Python dependencies (including dev dependencies)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    if [ -f requirements-dev.txt ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser && \
+    mkdir -p /app/logs /app/data && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/home/appuser/.local/bin:${PATH}"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health/liveness || exit 1
+
+# Run with hot reload
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]
